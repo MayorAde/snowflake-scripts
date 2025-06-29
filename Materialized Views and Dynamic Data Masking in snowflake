@@ -1,0 +1,345 @@
+--*****Activities 1. Create materialized views**********
+
+--Remove caching just to have a fair test
+
+ALTER SESSION SET USE_CACHED_RESULT=FALSE; -- disable global caching
+ALTER warehouse COMPUTE_WH suspend;
+ALTER warehouse COMPUTE_WH resume;
+  
+CREATE OR REPLACE DATABASE MV_ORDERS;
+CREATE OR REPLACE SCHEMA TPCH_SF100;
+CREATE OR REPLACE TABLE TPCH_SF100.ORDERS AS
+
+SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF100.ORDERS;
+ 
+SELECT * FROM ORDERS LIMIT 100;
+ 
+SELECT count(*) FROM ORDERS;
+ 
+--Now Let suppose we have a Query which is executing very frequently by Many users. Note
+
+--Down its query Execution Time- 5.9s
+
+SELECT
+YEAR(O_ORDERDATE) AS YEAR,
+MAX(O_COMMENT) AS MAX_COMMENT,
+MIN(O_COMMENT) AS MIN_COMMENT,
+MAX(O_CLERK) AS MAX_CLERK,
+MIN(O_CLERK) AS MIN_CLERK
+FROM ORDERS
+GROUP BY YEAR(O_ORDERDATE)
+ORDER BY YEAR(O_ORDERDATE);
+ 
+--Create Mat. View from Same Query
+
+CREATE OR REPLACE MATERIALIZED VIEW ORDERS_MV
+AS
+SELECT
+YEAR(O_ORDERDATE) AS YEAR,
+MAX(O_COMMENT) AS MAX_COMMENT,
+MIN(O_COMMENT) AS MIN_COMMENT,
+MAX(O_CLERK) AS MAX_CLERK,
+MIN(O_CLERK) AS MIN_CLERK,
+FROM ORDERS
+GROUP BY YEAR(O_ORDERDATE);
+ 
+--Get Details of Materialized View and check some Interesting Fact
+SHOW MATERIALIZED VIEWS;
+ 
+--6.Load the Data from Mat. View , and check the query loading timing .
+
+-- Time 647 ms
+
+SELECT * FROM ORDERS_MV
+ 
+ 
+--**********ACTIVITY -2 : REFRESH MAT. View***********
+ SELECT * FROM ORDERS
+ 1.Update Some Values in Mat. View
+-- UPDATE values
+UPDATE ORDERS
+
+SET O_CLERK='Clerk#99900000'
+WHERE O_ORDERDATE='1992-01-01';
+ 
+--Validate this value in a given Table.
+
+SELECT
+YEAR(O_ORDERDATE) AS YEAR,
+MAX(O_COMMENT) AS MAX_COMMENT,
+MIN(O_COMMENT) AS MIN_COMMENT,
+MAX(O_CLERK) AS MAX_CLERK,
+MIN(O_CLERK) AS MIN_CLERK
+
+FROM ORDERS
+
+GROUP BY YEAR(O_ORDERDATE)
+
+ORDER BY YEAR(O_ORDERDATE)
+ 
+ 
+--Check Mat. View and wait COUPLE OF minutes so that updated value reflected in Mat. View.
+
+--or we can say Mat. View Can be refreshed.
+
+SELECT * FROM ORDERS_MV
+ORDER BY YEAR;
+ 
+ 
+--************ACTIVITY -3 : Creating a masking policy************
+ 
+--Set the Database and role
+
+CREATE OR REPLACE DATABASE DEMO_DB;
+ 
+ 
+USE DEMO_DB;
+ 
+USE ROLE ACCOUNTADMIN;
+ 
+--Prepare table --
+
+create or replace table customers(
+id number,
+full_name varchar,
+email varchar,
+phone varchar,
+spent number,
+create_date DATE DEFAULT CURRENT_DATE);
+ 
+ 
+--insert values in table --
+insert into customers (id, full_name, email,phone,spent)
+values
+(1,'Lewiss MacDwyer','lmacdwyer0@un.org','262-665-9168',140),
+(2,'Ty Pettingall','tpettingall1@mayoclinic.com','734-987-7120',254),
+(3,'Marlee Spadazzi','mspadazzi2@txnews.com','867-946-3659',120),
+(4,'Heywood Tearney','htearney3@patch.com','563-853-8192',1230),
+(5,'Odilia Seti','oseti4@globo.com','730-451-8637',143),
+(6,'Meggie Washtell','mwashtell5@rediff.com','568-896-6138',600);
+ 
+ 
+select * from customers;
+ 
+--Set up roles
+CREATE OR REPLACE ROLE ANALYST_MASKED;
+CREATE OR REPLACE ROLE ANALYST_FULL;
+ 
+--Grant select on table , Schema and Database to roles
+
+GRANT SELECT ON TABLE DEMO_DB.PUBLIC.CUSTOMERS TO ROLE ANALYST_MASKED;
+
+GRANT SELECT ON TABLE DEMO_DB.PUBLIC.CUSTOMERS TO ROLE ANALYST_FULL;
+ 
+GRANT USAGE ON SCHEMA DEMO_DB.PUBLIC TO ROLE ANALYST_MASKED;
+
+GRANT USAGE ON SCHEMA DEMO_DB.PUBLIC TO ROLE ANALYST_FULL;
+ 
+GRANT USAGE ON DATABASE DEMO_DB TO ROLE ANALYST_MASKED;
+
+GRANT USAGE ON DATABASE DEMO_DB TO ROLE ANALYST_FULL;
+ 
+ 
+--Grant warehouse access to roles
+
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE ANALYST_MASKED;
+
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE ANALYST_FULL;
+ 
+ 
+--Assign roles to a user < TAKE YOUR USERNAME , WHAT YOU USED FOR LOGIN >
+
+GRANT ROLE ANALYST_MASKED TO USER MAYOWAADEJUMO;
+ 
+GRANT ROLE ANALYST_FULL TO USER MAYOWAADEJUMO;
+ 
+ 
+show ROLEs;
+ 
+ 
+--Set up masking policy
+create or replace masking policy phone
+as (val varchar) returns varchar ->
+case
+when current_role() in ('ANALYST_FULL', 'ACCOUNTADMIN') then val
+else '##-###-##'
+end;
+ 
+--Apply policy on a specific column
+ALTER TABLE IF EXISTS CUSTOMERS MODIFY COLUMN phone
+SET MASKING POLICY PHONE;
+ 
+--Validating policies with first role
+
+USE ROLE ANALYST_FULL;
+ 
+SELECT * FROM DEMO_DB.PUBLIC.CUSTOMERS;
+ 
+--Validating policies with Second role
+
+USE ROLE ANALYST_MASKED;
+ 
+ SELECT * FROM DEMO_DB.PUBLIC.CUSTOMERS;
+ 
+-------------------------------------------------------------------------
+ ---What is a UDF in Snowflake?
+
+--A UDF (User-Defined Function) in Snowflake is a custom function that you define using SQL, JavaScript, or Python to perform specific logic — similar to built-in functions like UPPER() or ROUND() — but tailored to your use case.
+ 
+--Example :
+--Step 1: Create a Database
+ 
+CREATE OR REPLACE DATABASE sample_db;
+ 
+--Step 2: Create a Schema
+ 
+create or replace DATABASE sample_db;
+ 
+USE DATABASE sample_db;--
+ 
+CREATE OR REPLACE SCHEMA sample_schema;
+ 
+--Step 3: Create a Table , Let’s create a table to store employee information.
+ 
+USE SCHEMA sample_schema;
+CREATE OR REPLACE TABLE employee (
+    emp_id INT,
+    first_name STRING,
+    last_name STRING,
+    department STRING,
+    salary NUMBER
+);
+ 
+ 
+--Step 4: Insert 10 Rows
+ 
+ 
+INSERT INTO employee (emp_id, first_name, last_name, department, salary) VALUES
+(1, 'John', 'Doe', 'Engineering', 80000),
+(2, 'Jane', 'Smith', 'HR', 60000),
+(3, 'Sam', 'Williams', 'Marketing', 65000),
+(4, 'Lisa', 'Johnson', 'Engineering', 90000),
+(5, 'Mark', 'Brown', 'Sales', 55000),
+(6, 'Emily', 'Davis', 'Sales', 72000),
+(7, 'Tom', 'Clark', 'Engineering', 88000),
+(8, 'Anna', 'Taylor', 'HR', 61000),
+(9, 'James', 'Anderson', 'Marketing', 67000),
+(10, 'Sophia', 'Martin', 'Sales', 70000);
+ 
+select * from employee;
+ 
+--Step 5: Create a UDF (User Defined Function) Let’s create a UDF that calculates a 10% bonus on salary.
+CREATE OR REPLACE FUNCTION calc_bonus(salary NUMBER)
+RETURNS NUMBER
+AS
+$$
+    salary * 0.10
+$$;
+ 
+ 
+--Step 6: Display the Result Using UDF ,Now query the table with the calculated bonus:
+ 
+SELECT 
+    emp_id,
+    first_name,
+    last_name,
+    department,
+    salary,
+    calc_bonus(salary) AS bonus
+FROM employee;
+
+ ---------------------------------------------------------------------------
+
+--- What are Stored Procedures?
+
+---Stored procedures allow you to write procedural code that executes business logic by combining multiple SQL statements. In a stored procedure, you can use programmatic constructs to perform branching and looping.
+ 
+ 
+---Example :
+ 
+CREATE OR REPLACE DATABASE employee_management;
+
+USE DATABASE employee_management;
+ 
+CREATE OR REPLACE TABLE employees (
+    employee_id INT AUTOINCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    department VARCHAR(50),
+    salary NUMBER(10, 2),
+    hire_date DATE DEFAULT CURRENT_DATE(),
+    status VARCHAR(10) 
+);
+ 
+TRUNCATE table employees;
+INSERT INTO employees (first_name, last_name, email, department, salary, hire_date, status) VALUES
+('John', 'Doe', 'john.doe@company.com', 'Engineering', 85000.00, '2020-01-15', 'ACTIVE'),
+('Jane', 'Smith', 'jane.smith@company.com', 'Marketing', 75000.00, '2019-05-22', 'ACTIVE'),
+('Robert', 'Johnson', 'robert.johnson@company.com', 'Sales', 68000.00, '2021-03-10', 'ACTIVE'),
+('Emily', 'Williams', 'emily.williams@company.com', 'Engineering', 92000.00, '2018-11-05', 'ACTIVE'),
+('Michael', 'Brown', 'michael.brown@company.com', 'HR', 65000.00, '2022-02-18', 'ACTIVE'),
+('Sarah', 'Davis', 'sarah.davis@company.com', 'Marketing', 78000.00, '2020-07-30', 'INACTIVE'),
+('David', 'Miller', 'david.miller@company.com', 'Sales', 72000.00, '2021-09-12', 'ACTIVE'),
+('Jessica', 'Wilson', 'jessica.wilson@company.com', 'Engineering', 88000.00, '2019-12-03', 'ACTIVE'),
+('Thomas', 'Moore', 'thomas.moore@company.com', 'Finance', 95000.00, '2018-06-25', 'INACTIVE'),
+('Lisa', 'Taylor', 'lisa.taylor@company.com', 'HR', 62000.00, '2022-01-08', 'INACTIVE');
+ 
+ 
+SELECT * FROM employees ORDER BY status, employee_id;
+
+CREATE OR REPLACE PROCEDURE purge_data()
+    RETURNS VARCHAR
+    LANGUAGE SQL
+AS
+$$
+  DECLARE
+        message VARCHAR;
+
+    BEGIN
+
+        DELETE FROM employees WHERE status = 'INACTIVE';
+
+        message := 'Inactive employees data deleted successfully';
+
+        RETURN message;
+
+    END;
+$$;
+ 
+ CALL purge_data();
+ 
+--Creating a Stored Procedure with Input Parameters
+ 
+CREATE OR REPLACE PROCEDURE purge_data_by_status(in_status VARCHAR)
+   RETURNS VARCHAR
+    LANGUAGE SQL
+
+AS
+
+$$
+
+    DECLARE
+
+        message VARCHAR;
+
+    BEGIN
+
+        DELETE FROM employees WHERE status = :in_status;
+
+        message := in_status ||' employees data deleted sucessfully';
+
+        RETURN message;
+
+    END;
+
+$$
+
+;
+ 
+ 
+CALL purge_data_by_status('ACTIVE');
+ 
+ 
+Select * from employees
+ 
