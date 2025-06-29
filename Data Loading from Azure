@@ -1,0 +1,82 @@
+USE DATABASE COPY_DB;
+
+CREATE STORAGE INTEGRATION azure_integration 
+TYPE = EXTERNAL_STAGE STORAGE_PROVIDER = AZURE 
+ENABLED = TRUE 
+AZURE_TENANT_ID = 'a279d8d3-a42d-457b-82ea-492a1b496c3f' 
+STORAGE_ALLOWED_LOCATIONS = ('azure://storagesnowflake2010.blob.core.windows.net/snowflakecsv');
+
+DESC STORAGE integration azure_integration;
+
+create or replace file format copy_db.public.fileformat_azure
+ TYPE = CSV
+ FIELD_DELIMITER = ','
+ SKIP_HEADER = 1;
+
+ create or replace stage stage_azure
+ STORAGE_INTEGRATION = azure_integration
+ URL = 'azure://storagesnowflake2010.blob.core.windows.net/snowflakecsv'
+ FILE_FORMAT = fileformat_azure;
+
+
+LIST @COPY_DB.PUBLIC.STAGE_AZURE;
+
+CREATE OR REPLACE DATABASE SNOWPIPE_AZURE;
+
+CREATE OR REPLACE TABLE BANK_TRANSACTIONS
+(
+TransactionNo INT,
+DateTime DATETIME,
+FromAccount INT,
+ToAccount INT,
+Amount NUMBER,
+TypeOfTransaction VARCHAR(20),
+TranDescription VARCHAR(200),
+Source VARCHAR(100)
+);
+
+--Prerequisite: 
+--Collect the Azure Queue URL -https://storagesnowflake2010.queue.core.windows.net/snowpipe-queue
+--Azure Tenant ID - a279d8d3-a42d-457b-82ea-492a1b496c3f
+
+ CREATE OR REPLACE NOTIFICATION INTEGRATION SNOWPIPE_EVENT
+ENABLED =TRUE
+TYPE=QUEUE
+NOTIFICATION_PROVIDER=AZURE_STORAGE_QUEUE
+AZURE_STORAGE_QUEUE_PRIMARY_URI='https://storagesnowflake2010.queue.core.windows.net/snowpipe-queue'
+AZURE_TENANT_ID='a279d8d3-a42d-457b-82ea-492a1b496c3f';
+
+desc NOTIFICATION INTEGRATION SNOWPIPE_EVENT;
+
+--https://storagesnowflake2010.blob.core.windows.net/
+
+--https://storagesnowflake2010.blob.core.windows.net/?sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=2025-05-12T17:28:47Z&st=2025-05-12T09:28:47Z&spr=https&sig=HA7%2Bc34xMFR9PIdiAQuUA1DNYLfZHI1E9fdaGTuEDgw%3D
+
+--storagesnowflake2010
+CREATE OR REPLACE STAGE TRANSACTIONS_STAGE
+url = 'azure://storagesnowflake2010.blob.core.windows.net/snowflakecsv'
+credentials = (azure_sas_token=
+'?sv=2024-11-04&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=2025-05-12T17:28:47Z&st=2025-05-12T09:28:47Z&spr=https&sig=HA7%2Bc34xMFR9PIdiAQuUA1DNYLfZHI1E9fdaGTuEDgw%3D'
+);
+
+show stages;
+
+
+
+CREATE OR REPLACE pipe "TRANSACTIONS_PIPE"
+ auto_ingest = true
+ integration = 'SNOWPIPE_EVENT'
+ as
+ copy into BANK_TRANSACTIONS
+(TransactionNo,DateTime,FromAccount,ToAccount,Amount,TypeOfTransaction,TranDescription
+,Source)
+from (SELECT $1,TO_DATE($2,'MM/DD/YYYY HH:MI AM'),$3,$4,$5,$6,$7,$8 FROM 
+@TRANSACTIONS_STAGE )
+ file_format = (type = 'CSV');
+
+ SELECT * FROM BANK_TRANSACTIONS;
+
+ SELECT count(*) FROM BANK_TRANSACTIONS;
+
+
+
