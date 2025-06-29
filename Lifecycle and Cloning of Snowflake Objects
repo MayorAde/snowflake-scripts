@@ -1,0 +1,187 @@
+--ACTIVITY-1: Permanent tables & databases
+USE OUR_FIRST_DB;
+SHOW DATABASES;
+
+ALTER WAREHOUSE COMPUTE_WH1 SET WAREHOUSE_SIZE = 'Small';
+
+SHOW SCHEMAS;
+use schema INFORMATION_SCHEMA;
+
+CREATE OR REPLACE TABLE customers_1 (
+ id int,
+ first_name string,
+ last_name string,
+ email string,
+ gender string,
+ Job string,
+ Phone string);
+
+ CREATE OR REPLACE DATABASE PDB;
+
+SHOW DATABASES;
+use schema INFORMATION_SCHEMA;
+USE OUR_FIRST_DB;
+SHOW TABLES;
+
+
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS;
+SELECT ID, TABLE_NAME, 
+TABLE_SCHEMA,TABLE_CATALOG,
+ACTIVE_BYTES / (1024*1024*1024) AS ACTIVE_STORAGE_USED_GB,
+TIME_TRAVEL_BYTES / (1024*1024*1024) AS 
+TIME_TRAVEL_STORAGE_USED_GB,
+FAILSAFE_BYTES / (1024*1024*1024) AS FAILSAFE_STORAGE_USED_GB,
+ IS_TRANSIENT,
+ DELETED,TABLE_CREATED,
+ TABLE_DROPPED,TABLE_ENTERED_FAILSAFE
+FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS
+WHERE TABLE_DROPPED is not null // Specific table which moves to failsafe
+ORDER BY FAILSAFE_BYTES DESC;
+
+--ACTIVITY-2: Transient tables & databases
+CREATE OR REPLACE DATABASE TDB;
+
+CREATE OR REPLACE TRANSIENT TABLE TDB.public.customers_transient (
+ id int,
+ first_name string,
+ last_name string,
+ email string,
+ gender string,
+ Job string,
+ Phone string);
+
+insert into customers_transient 
+values(1,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+
+SHOW TABLES;
+
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS;
+
+-- Set retention time to 0
+ALTER TABLE TDB.public.customers_transient
+SET DATA_RETENTION_TIME_IN_DAYS = 0
+DROP TABLE TDB.public.customers_transient;
+UNDROP TABLE TDB.public.customers_transient;
+
+
+--ACTIVITY-3: Temporary tables & databases
+CREATE OR REPLACE DATABASE TEMP_DB;
+USE TEMP_DB;
+
+CREATE TABLE customers_2 (
+ id int,
+ first_name string,
+ last_name string,
+ email string,
+ gender string,
+ Job string,
+ Phone string);
+ insert into customers_2 values(1,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+
+ CREATE OR REPLACE TEMPORARY TABLE customers_2 (
+ id int,
+ first_name string,
+ last_name string,
+ email string,
+ gender string,
+ Job string,
+ Phone string);
+
+show tables;
+insert into customers_2 values(2,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+insert into customers_2 values(3,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+insert into customers_2 values(4,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+insert into customers_2 values(5,'Joe','Paul','jaoe@gmail.com','M','Accountant','8787654567');
+
+Select * from customers_2;
+USE TEMP_DB;
+Select * from customers_2;
+
+--ACTIVITY-4: Cloning tables , schemas and Databased
+
+CREATE SCHEMA ORDERS;
+CREATE OR REPLACE TABLE orders (
+    order_id INT,
+    customer_name STRING,
+    order_date DATE,
+    total_amount NUMBER(10,2)
+);
+
+SELECT * FROM OUR_FIRST_DB.PUBLIC.ORDERS;
+--2.Create a clone for existing table
+CREATE TABLE OUR_FIRST_DB.PUBLIC.ORDERS_CLONE
+CLONE OUR_FIRST_DB.PUBLIC.ORDERS;
+--3. Validate cloned table
+SELECT * FROM OUR_FIRST_DB.PUBLIC.ORDERS_CLONE;
+
+CREATE SCHEMA OUR_FIRST_DB.COPIED_SCHEMA
+CLONE OUR_FIRST_DB.PUBLIC;
+
+SELECT * FROM COPIED_SCHEMA.ORDERS;
+
+// Cloning Database
+CREATE DATABASE OUR_FIRST_DB_COPY
+CLONE OUR_FIRST_DB;
+//Further Action
+DROP DATABASE OUR_FIRST_DB_COPY;
+
+DROP SCHEMA OUR_FIRST_DB.COPIED_SCHEMA;
+
+--ACTIVITY-5: Cloning with time travel.
+CREATE OR REPLACE TABLE OUR_FIRST_DB.public.time_travel (
+ id int,
+ first_name string,
+ last_name string,
+ email string,
+ gender string,
+ Job string,
+ Phone string);
+ 
+CREATE OR REPLACE FILE FORMAT csv_file
+ type = csv
+ field_delimiter = ','
+ skip_header = 1;
+ 
+CREATE OR REPLACE STAGE time_travel_stage
+ URL = 's3://data-snowflake-fundamentals/time-travel/'
+ file_format =csv_file;
+ 
+COPY INTO OUR_FIRST_DB.public.time_travel
+from @time_travel_stage
+files = ('customers.csv');
+
+field_delimiter = ','
+ skip_header = 1;
+ 
+CREATE OR REPLACE STAGE time_travel_stage
+ URL = 's3://data-snowflake-fundamentals/time-travel/'
+ file_format =csv_file;
+ 
+COPY INTO OUR_FIRST_DB.public.time_travel
+from @time_travel_stage
+files = ('customers.csv');
+
+SELECT * FROM OUR_FIRST_DB.public.time_travel;
+
+UPDATE OUR_FIRST_DB.public.time_travel
+SET FIRST_NAME = 'Frank' ;
+
+select * from time_travel;
+
+CREATE OR REPLACE TABLE OUR_FIRST_DB.PUBLIC.time_travel_clone
+CLONE OUR_FIRST_DB.public.time_travel at (OFFSET => -60*7);
+
+select * from time_travel_clone;
+
+--ACTIVITY-6: SWAPPING OF TABLE
+SELECT * FROM ORDERS;
+
+Delete from ORDERS_CLONE where PROFIT < 0;
+Delete from ORDERS_CLONE where PROFIT > 1000
+Delete from ORDERS_CLONE where AMOUNT > 500
+SELECT * FROM ORDERS_CLONE;
+
+ALTER TABLE ORDERS_CLONE
+SWAP WITH ORDERS
+
+SELECT * FROM ORDERS_CLONE
