@@ -1,132 +1,246 @@
----************Activity 1. Create Stage and RAW file
-CREATE OR REPLACE stage MANAGE_DB.EXTERNAL_STAGES.JSONSTAGE
-url='s3://bucketsnowflake-jsondemo';
- 
- 
---Creating schema to keep things organized
-CREATE OR REPLACE SCHEMA MANAGE_DB.file_formats;
- 
-CREATE OR REPLACE file format MANAGE_DB.FILE_FORMATS.JSONFORMAT
-TYPE = JSON;
- 
- 
-CREATE OR REPLACE DATABASE OUR_FIRST_DB;
- 
---Create a table to load raw data , this table have only one column with type variant .
-CREATE OR REPLACE table OUR_FIRST_DB.PUBLIC.JSON_RAW (raw_file variant);
- 
---LOAD THE DATA IN TBALE
- 
---Load JSON file in Our Stage
- 
-COPY INTO OUR_FIRST_DB.PUBLIC.JSON_RAW
-FROM @MANAGE_DB.EXTERNAL_STAGES.JSONSTAGE
-file_format= MANAGE_DB.FILE_FORMATS.JSONFORMAT
-files = ('HR_data.json');
- 
---.Display Table
-SELECT * FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
- 
---***************ACTIVITY-2: Parsing JSON***************
---Selecting attribute/column
-SELECT RAW_FILE:city FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
- 
---.Retriving Data from Column Number ( as we have only 1 column)
-SELECT $1:first_name FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
---Selecting attribute/column – formatted ( String Data)
-SELECT RAW_FILE:first_name::string as first_name FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
---Selecting attribute/column – formatted ( Integer Data)
-SELECT RAW_FILE:id::int as id FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
---Retrieving Data from Multiple column
-SELECT
-RAW_FILE:id::int as id,
-RAW_FILE:first_name::STRING as first_name,
-RAW_FILE:last_name::STRING as last_name,
-RAW_FILE:gender::STRING as gender
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
+--ACTIVITY-1: Data Sampling
+
+--Create a Database and load the Existing view and find the number of Entries
+CREATE OR REPLACE DATABASE SAMPLING_DB;
+SELECT COUNT(*) FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL.CUSTOMER_ADDRESS;
+
+--Create a Sample (1% rows from original) form Given view .
+CREATE OR REPLACE VIEW ADDRESS_SAMPLE
+AS
+SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL.CUSTOMER_ADDRESS
+SAMPLE ROW (1) SEED(27); // HERE 1 STANDS FOR 1% , SEED WILL PRODUCCE SAME RESULT
+
+--Load view and again note down the Number of rows 
+SELECT * FROM ADDRESS_SAMPLE;
+
+SELECT CA_LOCATION_TYPE, COUNT(*)/324765*100
+FROM ADDRESS_SAMPLE
+GROUP BY CA_LOCATION_TYPE;
+
+SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL.CUSTOMER_ADDRESS 
+SAMPLE SYSTEM (1) SEED(23);
+
+-----------ACTIVITY-2: Creating Task
+// Create Database
+CREATE OR REPLACE DATABASE TASK_DB;
+// Prepare table
+CREATE OR REPLACE TABLE CUSTOMERS (
+ CUSTOMER_ID INT IDENTITY START 1 INCREMENT 1,
+ FIRST_NAME VARCHAR(40) DEFAULT 'JENNIFER',
+ CREATE_DATE DATE
+);
+
+// Create task
+CREATE OR REPLACE TASK CUSTOMER_INSERT
+ WAREHOUSE = COMPUTE_WH
+ SCHEDULE = '1 MINUTE'
+ AS 
+ INSERT INTO CUSTOMERS(CREATE_DATE) VALUES(CURRENT_TIMESTAMP);
 
 
+SHOW TASKS;
 
---*********ACTIVITY 3 & 4 : Handling nested data and Array
+ALTER TASK CUSTOMER_INSERT RESUME;
+ALTER TASK CUSTOMER_INSERT SUSPEND;
+
+SELECT * FROM CUSTOMERS;
+--Using ALTER command Suspend the Given Task.
+ALTER TASK CUSTOMER_INSERT SUSPEND;
+
+-----ACTIVITY-3: Creating Tree of Task
+--Set the Database and Parent Task Table
+USE TASK_DB;
+SHOW TASKS;
+SELECT * FROM CUSTOMERS;
+
+--Prepare a second table 
+CREATE OR REPLACE TABLE CUSTOMERS2 (
+ CUSTOMER_ID INT,
+ FIRST_NAME VARCHAR(40),
+ CREATE_DATE DATE);
+
+-- before creating child task make sure parent tasks is suspended.
+ALTER TASK CUSTOMER_INSERT SUSPEND;
+SHOW TASKS;
+
+--Create a child task
+CREATE OR REPLACE TASK CUSTOMER_INSERT2
+ WAREHOUSE = COMPUTE_WH
+ AFTER CUSTOMER_INSERT
+ AS 
+ INSERT INTO CUSTOMERS2 SELECT * FROM CUSTOMERS;
+
+ --Prepare a third table
+CREATE OR REPLACE TABLE CUSTOMERS3 (
+ CUSTOMER_ID INT,
+ FIRST_NAME VARCHAR(40),
+ CREATE_DATE DATE,
+ INSERT_DATE DATE DEFAULT DATE(CURRENT_TIMESTAMP));
+
+ --Create a child task for third able
+CREATE OR REPLACE TASK CUSTOMER_INSERT3
+ WAREHOUSE = COMPUTE_WH
+ AFTER CUSTOMER_INSERT2
+ AS 
+ INSERT INTO CUSTOMERS3 (CUSTOMER_ID,FIRST_NAME,CREATE_DATE) SELECT * FROM 
+CUSTOMERS2;
+
+--check the state of All tasks
+SHOW TASKS;
+
+ -- Resume CHILD TASK FIRST 
  
+ALTER TASK CUSTOMER_INSERT2 RESUME; 
+ALTER TASK CUSTOMER_INSERT3 RESUME;
+ALTER TASK CUSTOMER_INSERT RESUME; 
  
---Load nested data ( Job Column contain Nested Data)
-
-SELECT * FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
-
-SELECT RAW_FILE:job as job FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
+//yellow - Parent task 
  
+//gray color for child task
  
---Split nested data by using . dot operator
+-- CHECK THE TABLES
+SELECT * FROM CUSTOMERS2;
+SELECT * FROM CUSTOMERS;
 
-SELECT
-RAW_FILE:job.salary::INT as salary
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
+------Activity 7 : Streams(Insert, Update, Delete Operation)
+--1. Create a Database to Execute Strems Task
+CREATE OR REPLACE DATABASE STREAMS_DB;
+--2.Create example table-1 
+create or replace table sales_raw_staging(
+ id varchar,
+ product varchar,
+ price varchar,
+ amount varchar,
+ store_id varchar);
  
+---3.Insert values in Table -1 , and validate data using select command
+insert into sales_raw_staging 
+ values
+ (1,'Banana',1.99,1,1),
+ (2,'Lemon',0.99,1,1),
+ (3,'Apple',1.79,1,2),
+ (4,'Orange Juice',1.89,1,2),
+ (5,'Cereals',5.98,2,1); 
  
---Split nested data in to multiple column
+--Display tables
+select * from sales_raw_staging;
 
-SELECT
-RAW_FILE:first_name::STRING as first_name,
-RAW_FILE:job.salary::INT as salary,
-RAW_FILE:job.title::STRING as title
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
+--4. Create example table-2
+create or replace table store_table(
+ store_id number,
+ location varchar,
+ employees number);
+--5. Insert values in Table -1 and validate data
+INSERT INTO STORE_TABLE VALUES(1,'Chicago',33);
+INSERT INTO STORE_TABLE VALUES(2,'London',12);
+
+--Check table
+select * from store_table
+
+--6. Create example table-3
+create or replace table sales_final_table(
+ id int,
+ product varchar,
+ price number,
+ amount int,
+ store_id int,
+ location varchar,
+ employees int);
+
+ --7.Insert values in Table -3 by joining Table -1 and Table 2 , and validate data
+INSERT INTO sales_final_table 
+ SELECT 
+ SA.id,
+ SA.product,
+ SA.price,
+ SA.amount,
+ ST.STORE_ID,
+ ST.LOCATION, 
+ ST.EMPLOYEES 
+ FROM SALES_RAW_STAGING SA
+ JOIN STORE_TABLE ST ON ST.STORE_ID=SA.STORE_ID ;
+
+--8. Create a stream object on Table-1
+create or replace stream sales_stream on table sales_raw_staging;
+
+--9.Verify More information on Stream 
+SHOW STREAMS;
+DESC STREAM sales_stream;
+
+--10. Insert values in table -1, validate data using select command and let stream object Monitor the changes 
+insert into sales_raw_staging 
+ values
+ (6,'Mango',1.99,1,2),
+ (7,'Garlic',0.99,1,1);
+select * from sales_raw_staging;
+
+--11. Get changes on data using stream (INSERTS)
+select * from sales_stream;
+
+--12. Consume stream object
+INSERT INTO sales_final_table 
+ SELECT 
+ SA.id,
+ SA.product,
+ SA.price,
+ SA.amount,
+ ST.STORE_ID,
+ ST.LOCATION, 
+ ST.EMPLOYEES 
+ FROM SALES_STREAM SA
+ JOIN STORE_TABLE ST ON ST.STORE_ID=SA.STORE_ID ;
+
+ --13.Once Stream Object Consumed this become Empty
+select * from sales_stream;
+
+--14.Check the destination table 
+select * from sales_final_table;
+
+----------B-Update Stream 
+
+--1.Load Table -1
+SELECT * FROM SALES_RAW_STAGING; 
+
+UPDATE SALES_RAW_STAGING
+SET PRODUCT ='Potato' WHERE PRODUCT = 'Banana';
+SELECT * FROM SALES_RAW_STAGING; 
+
+SELECT * FROM SALES_STREAM;
+
+
+--4.Update the Target Table (Table 3)
+merge into SALES_FINAL_TABLE F -- Target table to merge changes from source table
+using SALES_STREAM S -- Stream that has captured the changes
+ on f.id = s.id 
+when matched 
+ and S.METADATA$ACTION ='INSERT'
+ and S.METADATA$ISUPDATE ='TRUE' -- Indicates the record has been updated 
+ then update 
+ set f.product = s.product,
+ f.price = s.price,
+ f.amount= s.amount,
+ f.store_id=s.store_id;
+
+ --5.Validate table -3
+SELECT * FROM SALES_FINAL_TABLE;
+
+--------------C-Delete Stream 
+--1. Perform Delete Operation on Table -1
  
- 
---Handling Array Data
+DELETE FROM SALES_RAW_STAGING
+WHERE PRODUCT = 'Lemon';
 
-SELECT
-RAW_FILE:prev_company as prev_company
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
---.Capturing First Entry in Array ( here in query0 for 1st value nad  1 stands for 2nd value in Array)
+--2.Capture The stream Object
+SELECT * FROM SALES_STREAM;
 
-SELECT
-RAW_FILE:prev_company[0]::STRING as prev_company
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
---Display the value count in each Array -ARRAY_SIZE
+--3.Reflect the Delete Operations in Table 3 ( Target Table)
+merge into SALES_FINAL_TABLE F -- Target table to merge changes from source table
+using SALES_STREAM S -- Stream that has captured the changes
+ on f.id = s.id 
+when matched 
+ and S.METADATA$ACTION ='DELETE' 
+ and S.METADATA$ISUPDATE = 'FALSE'
+ then delete ; 
 
-SELECT
-ARRAY_SIZE(RAW_FILE:prev_company) as prev_company
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
- 
--- END of Activity 3 and 4
-
--- Activity 5 and 6
-SELECT RAW_FILE:spoken_languages as spoken_languages FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
-SELECT RAW_FILE:first_name::STRING as First_name,
-       RAW_FILE:spoken_languages[0].language::STRING as First_language,         
-       RAW_FILE:spoken_languages[0].level::STRING as Level_spoken 
-FROM OUR_FIRST_DB.PUBLIC.JSON_RAW;
-
-select 
-       RAW_FILE:first_name::STRING as First_name, 
-       f.value:language::STRING as First_language, 
-       f.value:level::STRING as Level_spoken 
-from OUR_FIRST_DB.PUBLIC.JSON_RAW, table(flatten(RAW_FILE:spoken_languages)) f;
-
-CREATE OR REPLACE TABLE Languages AS 
-select 
-        RAW_FILE:first_name::STRING as First_name, 
-        f.value:language::STRING as First_language, 
-        f.value:level::STRING as Level_spoken 
-from OUR_FIRST_DB.PUBLIC.JSON_RAW, table(flatten(RAW_FILE:spoken_languages)) f;
-
-SELECT * FROM Languages;
-
-truncate table languages;
-
-INSERT INTO Languages 
-select 
-        RAW_FILE:first_name::STRING as First_name, 
-        f.value:language::STRING as First_language, 
-        f.value:level::STRING as Level_spoken 
-from OUR_FIRST_DB.PUBLIC.JSON_RAW, table(flatten(RAW_FILE:spoken_languages)) f;
-
-SELECT * FROM Languages;
+ --Validate table -3
+SELECT * FROM SALES_FINAL_TABLE;
