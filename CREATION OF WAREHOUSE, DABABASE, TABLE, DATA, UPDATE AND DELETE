@@ -1,0 +1,60 @@
+⚠️ This project is for practice and learning purposes only.
+
+
+select * from SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER;
+
+CREATE WAREHOUSE my_warehouse5
+WAREHOUSE_SIZE = XSMALL 
+AUTO_SUSPEND = 600 
+AUTO_RESUME = TRUE 
+MIN_CLUSTER_COUNT = 1 
+SCALING_POLICY = STANDARD 
+MAX_CLUSTER_COUNT = 3;
+
+CREATE OR REPLACE DATABASE customer_db;
+USE DATABASE customer_db;
+
+CREATE OR REPLACE TABLE customers (
+ customer_id INT AUTOINCREMENT PRIMARY KEY,
+ first_name VARCHAR(50),
+ last_name VARCHAR(50),
+ email VARCHAR(100),
+ signup_date DATE,
+ total_purchases NUMBER(10,2),
+ loyalty_tier VARCHAR(20),
+ is_active BOOLEAN
+);
+
+select * from customers;
+
+INSERT INTO customers (first_name, last_name, email, signup_date, total_purchases, 
+loyalty_tier, is_active)
+VALUES
+ ('John', 'Smith', 'john.smith@example.com', '2022-01-15', 1250.00, 'Gold', TRUE),
+ ('Emily', 'Johnson', 'emily.j@example.com', '2022-02-20', 850.50, 'Silver', TRUE),
+ ('Michael', 'Williams', 'michael.w@example.com', '2022-03-10', 420.75, 'Bronze', TRUE),
+ ('Sarah', 'Brown', 'sarah.b@example.com', '2022-04-05', 2100.00, 'Platinum', TRUE),
+ ('David', 'Jones', 'david.j@example.com', '2022-05-12', 350.25, 'Bronze', FALSE),
+ ('Jessica', 'Garcia', 'jessica.g@example.com', '2022-06-18', 980.00, 'Silver', TRUE),
+ ('Robert', 'Miller', 'robert.m@example.com', '2022-07-22', 150.00, 'Basic', FALSE),
+ ('Jennifer', 'Davis', 'jennifer.d@example.com', '2022-08-30', 1750.50, 'Gold', TRUE),
+ ('Thomas', 'Rodriguez', 'thomas.r@example.com', '2022-09-14', 620.00, 'Silver', TRUE),
+ ('Lisa', 'Martinez', 'lisa.m@example.com', '2022-10-25', 320.75, 'Bronze', FALSE);
+
+UPDATE customers
+SET loyalty_tier = 'Platinum'
+WHERE total_purchases > 1000;
+
+UPDATE customers
+SET is_active = FALSE
+WHERE signup_date < '2022-06-01' AND total_purchases < 500;
+
+DELETE FROM customers
+WHERE is_active = FALSE 
+AND signup_date < '2022-03-01' 
+AND total_purchases < 300;
+
+SELECT * FROM customers ORDER BY customer_id;
+ 
+
+ 
